@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,7 +7,7 @@
   <meta name="theme-color" content="#f59e0b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="JobsWon" />
-  <meta name="description" content="JobsWon - AI Proposal Generator for Contractors. Win more jobs in 60 seconds." />
+  <meta name="description" content="JobsWon – AI Proposal Generator for Contractors. Win more jobs in 60 seconds." />
   <title>JobsWon – AI Proposals for Contractors</title>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -18,247 +19,663 @@
     body { background: #0a0b0e; font-family: 'Barlow', 'Segoe UI', sans-serif; color: #eef0f5; -webkit-font-smoothing: antialiased; }
     #root { min-height: 100vh; }
     textarea, input, select { -webkit-appearance: none; font-family: inherit; }
-    textarea:focus, input:focus, select:focus { outline: none; }
+    textarea:focus, input:focus { outline: none; }
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: #0a0b0e; }
     ::-webkit-scrollbar-thumb { background: #1c1f27; border-radius: 2px; }
-    @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .fade-up { animation: fadeUp 0.4s ease forwards; }
-    @media print { .no-print { display: none !important; } body { background: white; color: black; } }
+    @keyframes fadeUp   { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes spin     { to { transform: rotate(360deg); } }
+    @keyframes shimmer  { 0%,100% { opacity:.5; } 50% { opacity:1; } }
+    .fade-up  { animation: fadeUp 0.4s ease forwards; }
+    .spinning { display:inline-block; animation: spin 0.9s linear infinite; }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff !important; color: #000 !important; }
+      .proposal-box { background: #fff !important; border: none !important; color: #000 !important; }
+      .proposal-line { color: #000 !important; }
+      .proposal-sep  { border-color: #ccc !important; }
+      .proposal-amber { color: #b45309 !important; }
+    }
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="text/babel">
-    const { useState } = React;
+<div id="root"></div>
+<script type="text/babel">
+/* ─────────────────────────────────────────────────────────────────────────
+   JOBSWON  –  Single-file  |  Direct Anthropic API  |  Vercel-ready
+   Northeast Contracting LLC, Lincoln RI
+   ───────────────────────────────────────────────────────────────────────── */
 
-    const C = {
-      bg: '#0a0b0e', card: '#111318', card2: '#161920', border: '#1c1f27',
-      amber: '#f59e0b', amberDark: '#d97706', text: '#eef0f5',
-      muted: '#5a6070', green: '#22c55e', red: '#ef4444', blue: '#3b82f6',
-    };
+const { useState, useEffect, useRef } = React;
 
-    const SYSTEM_PROMPT = `You are JobsWon, an expert contractor estimating AI for Northeast Contracting LLC in Rhode Island.
-Generate a professional, detailed contractor job proposal based on the job description provided.
-Respond ONLY with valid JSON in this exact format:
-{
-  "title": "Job title (short, clear)",
-  "client": "Client name if mentioned, otherwise 'Valued Client'",
-  "address": "Property address if mentioned",
-  "scope": ["Line item 1", "Line item 2", "Line item 3"],
-  "materials": ["Material 1 with quantity", "Material 2 with quantity"],
-  "timeline": "Estimated project timeline",
-  "laborCost": 0000,
-  "materialCost": 0000,
-  "totalCost": 0000,
-  "warranty": "Warranty terms",
-  "notes": "Any important notes or exclusions",
-  "terms": "Payment terms"
+/* ── Design tokens ─────────────────────────────────────────────────────── */
+const C = {
+  bg:         '#0a0b0e',
+  card:       '#111318',
+  card2:      '#161920',
+  border:     '#1e2129',
+  amber:      '#f59e0b',
+  amberDark:  '#d97706',
+  text:       '#eef0f5',
+  muted:      '#55606f',
+  mutedMid:   '#7a8494',
+  green:      '#22c55e',
+  red:        '#ef4444',
+};
+
+/* ── Constants ─────────────────────────────────────────────────────────── */
+const LS_API_KEY  = 'jw_apikey_v2';
+const LS_HISTORY  = 'jw_history_v2';
+const API_URL     = 'https://api.anthropic.com/v1/messages';
+const MODEL       = 'claude-sonnet-4-20250514';
+
+const SYSTEM_PROMPT = `You are JobsWon, the estimating AI for Northeast Contracting LLC in Rhode Island. Generate professional, detailed contractor job proposals for exterior renovation work (roofing, siding, trim, windows, gutters, carpentry).
+
+FORMAT YOUR RESPONSE EXACTLY AS SHOWN BELOW. Use the separator lines exactly as written. Do not add extra commentary outside the proposal.
+
+═══════════════════════════════════════════════════
+
+PROPOSAL – [JOB TYPE IN CAPS]
+
+Northeast Contracting LLC
+Lincoln, Rhode Island  |  RI Contractor Lic. #[realistic 6-digit number]
+Licensed & Insured
+
+Date:          [Full date, e.g. April 26, 2026]
+Prepared For:  [Customer name if given, else "Valued Customer"]
+Property:      [Address if given, else omit this line]
+
+───────────────────────────────────────────────────
+
+SCOPE OF WORK
+
+[Detailed bullet list using • for each item. Be thorough and specific: methods, materials, standards, code compliance, cleanup. Minimum 6–10 bullets.]
+
+───────────────────────────────────────────────────
+
+MATERIALS
+
+[Itemized list with brand names and quantities where calculable. Use • bullets. Include brands like GAF, CertainTeed, James Hardie, Azek, Klauer, DaVinci, etc. where appropriate.]
+
+───────────────────────────────────────────────────
+
+PROJECT TIMELINE
+
+Estimated Start:   [2–3 weeks of signed agreement, or specific if requested]
+Working Days:      [Realistic estimate]
+Est. Completion:   [Date or range]
+
+───────────────────────────────────────────────────
+
+INVESTMENT
+
+  Labor:                  $[amount]
+  Materials:              $[amount]
+  ─────────────────────────────────
+  TOTAL INVESTMENT:       $[total]
+
+Payment Terms: 50% deposit required to schedule. Balance due upon satisfactory project completion.
+
+───────────────────────────────────────────────────
+
+WARRANTY & TERMS
+
+• [X]-year workmanship warranty on all labor
+• Manufacturer warranty on all materials as specified
+• Worksite kept clean; all debris removed daily
+• All work performed to current Rhode Island building code
+• Certificate of insurance available upon request
+• Proposal valid for 30 days from date issued
+
+───────────────────────────────────────────────────
+
+Authorized By:  _____________________________
+                Northeast Contracting LLC
+
+Customer Acceptance:  _______________________
+
+Date:  ______________________________________
+
+═══════════════════════════════════════════════════
+Northeast Contracting LLC – We Fix the Unfixable
+
+Use accurate 2025–2026 Rhode Island contractor market rates. Be specific and professional. Never use generic filler language.`;
+
+/* ── localStorage helpers ──────────────────────────────────────────────── */
+const lsGet  = (k, fallback) => { try { const v = localStorage.getItem(k); return v !== null ? v : fallback; } catch { return fallback; } };
+const lsSet  = (k, v)        => { try { localStorage.setItem(k, v); } catch {} };
+const lsGetJ = (k, fallback) => { try { return JSON.parse(localStorage.getItem(k)) ?? fallback; } catch { return fallback; } };
+const lsSetJ = (k, v)        => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+/* ── Clipboard helper ──────────────────────────────────────────────────── */
+const copyText = async (text) => {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+};
+
+/* ── Anthropic API call ────────────────────────────────────────────────── */
+const callAPI = async (apiKey, userMessage) => {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 2048,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = err?.error?.message || '';
+    if (res.status === 401) throw new Error('Invalid API key. Check your key and try again.');
+    if (res.status === 429) throw new Error('Rate limit hit. Wait a moment and retry.');
+    throw new Error(msg || `API error (${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.content[0].text;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SETUP SCREEN
+   ══════════════════════════════════════════════════════════════════════════ */
+function SetupScreen({ onSave, existingKey }) {
+  const [key,      setKey]      = useState(existingKey || '');
+  const [showKey,  setShowKey]  = useState(false);
+  const [status,   setStatus]   = useState('idle'); // idle | verifying | ok | error
+  const [errMsg,   setErrMsg]   = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 400); }, []);
+
+  const handleSave = async () => {
+    const k = key.trim();
+    if (!k) { setErrMsg('Paste your API key above.'); setStatus('error'); return; }
+    if (!k.startsWith('sk-ant-')) { setErrMsg('Anthropic keys start with sk-ant-…'); setStatus('error'); return; }
+
+    setStatus('verifying'); setErrMsg('');
+    try {
+      await callAPI(k, 'Reply with exactly: OK');
+      setStatus('ok');
+      lsSet(LS_API_KEY, k);
+      setTimeout(() => onSave(k), 600);
+    } catch (e) {
+      setStatus('error'); setErrMsg(e.message);
+    }
+  };
+
+  const handleKeyDown = (e) => { if (e.key === 'Enter') handleSave(); };
+
+  const btnColor = status === 'ok' ? C.green : status === 'verifying' ? C.border : (!key.trim() ? C.border : C.amber);
+  const btnText  = status === 'verifying' ? 'VERIFYING…' : status === 'ok' ? '✓ KEY VERIFIED' : 'SAVE & LAUNCH →';
+  const btnDisabled = status === 'verifying' || status === 'ok';
+
+  return (
+    <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'24px', background: C.bg }}>
+      <div className="fade-up" style={{ width:'100%', maxWidth:'440px' }}>
+
+        {/* Logo */}
+        <div style={{ textAlign:'center', marginBottom:'40px' }}>
+          <div style={{ fontFamily:'Barlow Condensed, sans-serif', fontSize:'60px', fontWeight:900, letterSpacing:'-1px', lineHeight:1 }}>
+            <span style={{ color: C.amber }}>JOBS</span><span style={{ color: C.text }}>WON</span>
+          </div>
+          <div style={{ fontSize:'11px', letterSpacing:'4px', color: C.muted, marginTop:'6px', textTransform:'uppercase' }}>
+            AI Proposals · Northeast Contracting LLC
+          </div>
+        </div>
+
+        {/* Card */}
+        <div style={{ background: C.card, border:`1px solid ${C.border}`, borderRadius:'20px', padding:'32px' }}>
+
+          <div style={{ fontSize:'20px', fontWeight:700, color: C.text, marginBottom:'6px' }}>
+            Connect Your Anthropic Key
+          </div>
+          <div style={{ fontSize:'14px', color: C.muted, lineHeight:1.6, marginBottom:'28px' }}>
+            Your key is saved in <strong style={{ color: C.mutedMid }}>this device's browser only</strong>.
+            It never passes through any server — it calls Anthropic directly.
+          </div>
+
+          {/* Input */}
+          <label style={{ fontSize:'11px', letterSpacing:'2px', color: C.muted, textTransform:'uppercase', fontWeight:700, display:'block', marginBottom:'8px' }}>
+            Anthropic API Key
+          </label>
+          <div style={{ position:'relative' }}>
+            <input
+              ref={inputRef}
+              type={showKey ? 'text' : 'password'}
+              value={key}
+              onChange={e => { setKey(e.target.value); setStatus('idle'); setErrMsg(''); }}
+              onKeyDown={handleKeyDown}
+              placeholder="sk-ant-api03-…"
+              style={{
+                width:'100%', padding:'14px 48px 14px 16px',
+                background: C.card2,
+                border:`1px solid ${status === 'error' ? C.red : status === 'ok' ? C.green : C.border}`,
+                borderRadius:'12px', color: C.text, fontSize:'14px',
+                fontFamily:'ui-monospace, monospace', letterSpacing:'0.5px',
+                transition:'border-color 0.2s',
+              }}
+            />
+            <button
+              onClick={() => setShowKey(s => !s)}
+              style={{ position:'absolute', right:'12px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color: C.muted, cursor:'pointer', fontSize:'16px', padding:'4px', lineHeight:1 }}
+              title={showKey ? 'Hide key' : 'Show key'}
+            >
+              {showKey ? '🙈' : '👁'}
+            </button>
+          </div>
+
+          {/* Error */}
+          {errMsg && (
+            <div style={{ marginTop:'10px', fontSize:'13px', color: C.red, lineHeight:1.4 }}>
+              ⚠ {errMsg}
+            </div>
+          )}
+
+          {/* Get key link */}
+          <a
+            href="https://console.anthropic.com/settings/keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display:'block', marginTop:'10px', fontSize:'13px', color: C.amber, textDecoration:'none' }}
+          >
+            → Get your key at console.anthropic.com ↗
+          </a>
+
+          {/* Button */}
+          <button
+            onClick={handleSave}
+            disabled={btnDisabled}
+            style={{
+              width:'100%', marginTop:'24px', padding:'17px',
+              background: btnColor,
+              color: (status === 'verifying' || (!key.trim() && status === 'idle')) ? C.muted : '#0a0b0e',
+              border:'none', borderRadius:'12px', fontSize:'17px', fontWeight:900,
+              cursor: btnDisabled ? 'default' : 'pointer',
+              transition:'all 0.25s',
+              fontFamily:'Barlow Condensed, sans-serif', letterSpacing:'1px',
+              display:'flex', alignItems:'center', justifyContent:'center', gap:'10px',
+            }}
+          >
+            {status === 'verifying' && <span className="spinning">⟳</span>}
+            {btnText}
+          </button>
+        </div>
+
+        <div style={{ textAlign:'center', marginTop:'28px', fontSize:'12px', color: C.muted, letterSpacing:'1px' }}>
+          NORTHEAST CONTRACTING LLC · LINCOLN, RI · WE FIX THE UNFIXABLE
+        </div>
+      </div>
+    </div>
+  );
 }
-Be specific, professional, and use Rhode Island contractor pricing. All costs in USD numbers only.`;
 
-    async function generateProposal(jobDesc) {
-      const res = await fetch('/api/proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: jobDesc }],
-        }),
-      });
-      if (!res.ok) throw new Error('API error ' + res.status);
-      const data = await res.json();
-      const text = data.content.map(b => b.text || '').join('');
-      const clean = text.replace(/```json|```/g, '').trim();
-      return JSON.parse(clean);
-    }
+/* ══════════════════════════════════════════════════════════════════════════
+   PROPOSAL VIEW
+   ══════════════════════════════════════════════════════════════════════════ */
+function ProposalView({ proposal, onBack, onNew }) {
+  const [copied, setCopied] = useState(false);
 
-    function Logo() {
-      return (
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{ width:38, height:38, borderRadius:10, background:`linear-gradient(135deg, ${C.amber}, ${C.amberDark})`, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Barlow Condensed', fontWeight:900, fontSize:18, color:'#0a0b0e' }}>JW</div>
-          <div>
-            <div style={{ fontFamily:'Barlow Condensed', fontWeight:900, fontSize:22, letterSpacing:1, color:C.amber }}>JOBSWON</div>
-            <div style={{ fontSize:10, color:C.muted, letterSpacing:2, marginTop:-3 }}>AI PROPOSALS</div>
-          </div>
+  const handleCopy = async () => {
+    await copyText(proposal);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2200);
+  };
+
+  /* Render proposal lines with styled formatting */
+  const renderLines = () => {
+    return proposal.split('\n').map((line, i) => {
+      const trimmed = line.trim();
+
+      if (!trimmed) return <div key={i} style={{ height:'7px' }} />;
+
+      const isBigSep   = trimmed.startsWith('═');
+      const isSmallSep = trimmed.startsWith('─');
+      const isCash     = trimmed.startsWith('─────') || trimmed === '─────────────────────────────────';
+      const isTitle    = trimmed.startsWith('PROPOSAL –');
+      const isHeader   = /^(SCOPE OF WORK|MATERIALS|PROJECT TIMELINE|INVESTMENT|WARRANTY & TERMS|Northeast Contracting LLC|We Fix the Unfixable)/.test(trimmed);
+      const isTotal    = trimmed.startsWith('TOTAL INVESTMENT:');
+      const isLabel    = /^(Date:|Prepared For:|Property:|Estimated Start:|Working Days:|Est\. Completion:|Labor:|Materials:|Payment Terms:|Authorized By:|Customer Acceptance:|Date:  )/.test(trimmed);
+
+      if (isBigSep)   return <div key={i} style={{ borderTop:`2px solid ${C.amber}`, margin:'14px 0', opacity:0.4 }} className="proposal-sep" />;
+      if (isSmallSep && !isCash) return <div key={i} style={{ borderTop:`1px solid ${C.border}`, margin:'10px 0' }} className="proposal-sep" />;
+      if (isCash)     return <div key={i} style={{ borderTop:`1px solid ${C.border}`, margin:'4px 0' }} className="proposal-sep" />;
+
+      if (isTitle) return (
+        <div key={i} style={{ fontFamily:'Barlow Condensed, sans-serif', fontSize:'clamp(20px,5vw,26px)', fontWeight:900, color: C.amber, letterSpacing:'0.5px', marginBottom:'4px' }} className="proposal-amber">
+          {trimmed}
         </div>
       );
-    }
 
-    function Spinner() {
-      return <div style={{ width:24, height:24, border:`3px solid ${C.border}`, borderTopColor:C.amber, borderRadius:'50%', animation:'spin 0.8s linear infinite', display:'inline-block' }} />;
-    }
-
-    function ProposalCard({ proposal }) {
-      const fmt = (n) => '$' + Number(n).toLocaleString();
-      return (
-        <div className="fade-up" style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden', marginTop:20 }}>
-          <div style={{ background:`linear-gradient(135deg, ${C.amber}22, ${C.amberDark}11)`, borderBottom:`1px solid ${C.border}`, padding:'20px 24px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:10 }}>
-              <div>
-                <div style={{ fontFamily:'Barlow Condensed', fontWeight:900, fontSize:22, color:C.amber }}>{proposal.title}</div>
-                {proposal.client && <div style={{ color:C.muted, fontSize:13, marginTop:2 }}>Client: <span style={{ color:C.text }}>{proposal.client}</span></div>}
-                {proposal.address && <div style={{ color:C.muted, fontSize:13 }}>Address: <span style={{ color:C.text }}>{proposal.address}</span></div>}
-              </div>
-              <button onClick={() => window.print()} className="no-print" style={{ background:'transparent', border:`1px solid ${C.border}`, color:C.muted, padding:'6px 14px', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600 }}>🖨 Print / PDF</button>
-            </div>
-          </div>
-          <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:20 }}>
-            {proposal.scope?.length > 0 && (
-              <div>
-                <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, color:C.muted, marginBottom:10 }}>SCOPE OF WORK</div>
-                {proposal.scope.map((item, i) => (
-                  <div key={i} style={{ display:'flex', gap:10, padding:'8px 0', borderBottom:`1px solid ${C.border}` }}>
-                    <span style={{ color:C.amber, fontWeight:700, minWidth:20 }}>{i+1}.</span>
-                    <span style={{ fontSize:14 }}>{item}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {proposal.materials?.length > 0 && (
-              <div>
-                <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, color:C.muted, marginBottom:10 }}>MATERIALS</div>
-                {proposal.materials.map((item, i) => (
-                  <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', borderBottom:`1px solid ${C.border}`, fontSize:14 }}>
-                    <span style={{ color:C.amber, fontSize:12 }}>▸</span>{item}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, letterSpacing:2, color:C.muted, marginBottom:10 }}>COST BREAKDOWN</div>
-              {[['Labor', proposal.laborCost], ['Materials', proposal.materialCost]].map(([label, val]) => (
-                <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:`1px solid ${C.border}`, fontSize:14 }}>
-                  <span style={{ color:C.muted }}>{label}</span>
-                  <span style={{ fontWeight:600 }}>${Number(val).toLocaleString()}</span>
-                </div>
-              ))}
-              <div style={{ borderTop:`2px solid ${C.amber}44`, marginTop:8, paddingTop:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <span style={{ fontFamily:'Barlow Condensed', fontWeight:800, fontSize:18 }}>TOTAL</span>
-                <span style={{ fontFamily:'Barlow Condensed', fontWeight:900, fontSize:24, color:C.amber }}>{fmt(proposal.totalCost)}</span>
-              </div>
-            </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              {[['📅','Timeline',proposal.timeline],['🛡','Warranty',proposal.warranty],['💳','Payment',proposal.terms],['📋','Notes',proposal.notes]].filter(([,,v])=>v).map(([icon,label,value])=>(
-                <div key={label} style={{ background:C.card2, borderRadius:10, padding:'12px 14px' }}>
-                  <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>{icon} {label}</div>
-                  <div style={{ fontSize:13, fontWeight:600 }}>{value}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ background:C.card2, borderRadius:10, padding:'14px 18px', fontSize:12, color:C.muted, textAlign:'center' }}>
-              Proposal by <span style={{ color:C.amber, fontWeight:700 }}>Northeast Contracting LLC</span> · Rhode Island · Powered by JobsWon AI
-            </div>
-          </div>
+      if (isHeader) return (
+        <div key={i} style={{ fontSize:'12px', fontWeight:700, letterSpacing:'2px', textTransform:'uppercase', color: C.mutedMid, marginTop:'4px' }} className="proposal-line">
+          {trimmed}
         </div>
       );
-    }
 
-    function App() {
-      const [screen, setScreen] = useState('home');
-      const [jobDesc, setJobDesc] = useState('');
-      const [loading, setLoading] = useState(false);
-      const [proposal, setProposal] = useState(null);
-      const [error, setError] = useState('');
-      const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem('jw_history') || '[]'); } catch { return []; } });
-
-      const saveHistory = (p) => {
-        const updated = [{ ...p, _date: new Date().toLocaleDateString() }, ...history].slice(0, 20);
-        setHistory(updated);
-        localStorage.setItem('jw_history', JSON.stringify(updated));
-      };
-
-      const handleGenerate = async () => {
-        if (!jobDesc.trim()) { setError('Please describe the job first.'); return; }
-        setError(''); setLoading(true); setProposal(null);
-        try {
-          const p = await generateProposal(jobDesc);
-          setProposal(p);
-          saveHistory(p);
-        } catch (e) {
-          setError('Failed to generate proposal. Please try again.');
-        } finally { setLoading(false); }
-      };
-
-      const btn = (primary) => ({
-        background: primary ? `linear-gradient(135deg, ${C.amber}, ${C.amberDark})` : 'transparent',
-        color: primary ? '#0a0b0e' : C.text,
-        border: primary ? 'none' : `1px solid ${C.border}`,
-        borderRadius:12, padding:'14px 24px', fontFamily:'Barlow Condensed',
-        fontWeight:800, fontSize:16, letterSpacing:1, cursor:'pointer', width:'100%',
-      });
-
-      return (
-        <div style={{ maxWidth:520, margin:'0 auto', minHeight:'100vh', display:'flex', flexDirection:'column' }}>
-          <header className="no-print" style={{ position:'sticky', top:0, zIndex:100, background:C.bg+'ee', backdropFilter:'blur(12px)', borderBottom:`1px solid ${C.border}`, padding:'12px 20px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <Logo />
-            <span style={{ fontSize:12, color:C.muted }}>Northeast Contracting LLC</span>
-          </header>
-
-          <main style={{ flex:1, padding:'20px 16px 40px' }}>
-            {screen === 'home' && (
-              <div className="fade-up">
-                <div style={{ textAlign:'center', padding:'32px 0 24px' }}>
-                  <div style={{ fontFamily:'Barlow Condensed', fontWeight:900, fontSize:42, lineHeight:1, color:C.amber }}>WIN MORE JOBS</div>
-                  <div style={{ fontFamily:'Barlow Condensed', fontWeight:700, fontSize:22, color:C.text, marginTop:4 }}>PROFESSIONAL PROPOSALS IN 60 SECONDS</div>
-                  <div style={{ color:C.muted, fontSize:14, marginTop:10, lineHeight:1.6 }}>Describe the job, get a complete contractor proposal ready to send.</div>
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, margin:'20px 0' }}>
-                  {[['⚡','Instant','AI-powered'],['📋','Complete','Scope & cost'],['🏆','Professional','Ready to send']].map(([icon,t,d])=>(
-                    <div key={t} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:'14px 10px', textAlign:'center' }}>
-                      <div style={{ fontSize:24 }}>{icon}</div>
-                      <div style={{ fontWeight:700, fontSize:13, marginTop:6 }}>{t}</div>
-                      <div style={{ color:C.muted, fontSize:11, marginTop:3 }}>{d}</div>
-                    </div>
-                  ))}
-                </div>
-                <button style={btn(true)} onClick={() => setScreen('generate')}>CREATE A PROPOSAL →</button>
-                {history.length > 0 && <button style={{ ...btn(false), marginTop:10 }} onClick={() => setScreen('history')}>VIEW PAST PROPOSALS ({history.length})</button>}
-              </div>
-            )}
-
-            {screen === 'generate' && (
-              <div className="fade-up">
-                <button onClick={() => { setScreen('home'); setProposal(null); setError(''); }} style={{ background:'transparent', border:'none', color:C.muted, cursor:'pointer', fontSize:13, marginBottom:16, padding:0 }}>← Back</button>
-                <div style={{ fontFamily:'Barlow Condensed', fontWeight:900, fontSize:26, marginBottom:6 }}>NEW PROPOSAL</div>
-                <div style={{ color:C.muted, fontSize:13, marginBottom:20 }}>Describe the job — the more detail, the better.</div>
-                <textarea
-                  value={jobDesc}
-                  onChange={e => setJobDesc(e.target.value)}
-                  placeholder="Example: Replace roof on 2-story colonial in Cranston RI. About 2,400 sq ft. Tear off existing shingles, install new GAF Timberline HDZ in Charcoal. Customer is John Smith, 45 Maple Street..."
-                  style={{ width:'100%', minHeight:160, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:'14px 16px', color:C.text, fontSize:14, lineHeight:1.6, resize:'vertical' }}
-                />
-                {error && <div style={{ background:`${C.red}22`, border:`1px solid ${C.red}44`, borderRadius:10, padding:'10px 14px', color:C.red, fontSize:13, marginTop:10 }}>{error}</div>}
-                <button style={{ ...btn(true), marginTop:16, opacity: loading ? 0.7 : 1 }} onClick={handleGenerate} disabled={loading}>
-                  {loading ? <span style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}><Spinner /> GENERATING...</span> : '⚡ GENERATE PROPOSAL'}
-                </button>
-                {proposal && <ProposalCard proposal={proposal} />}
-              </div>
-            )}
-
-            {screen === 'history' && (
-              <div className="fade-up">
-                <button onClick={() => setScreen('home')} style={{ background:'transparent', border:'none', color:C.muted, cursor:'pointer', fontSize:13, marginBottom:16, padding:0 }}>← Back</button>
-                <div style={{ fontFamily:'Barlow Condensed', fontWeight:900, fontSize:26, marginBottom:16 }}>PAST PROPOSALS</div>
-                {history.map((p, i) => (
-                  <div key={i} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:'16px 18px', marginBottom:10, cursor:'pointer' }} onClick={() => { setProposal(p); setScreen('generate'); }}>
-                    <div style={{ fontWeight:700, fontSize:15 }}>{p.title}</div>
-                    <div style={{ color:C.muted, fontSize:12, marginTop:4, display:'flex', gap:12 }}>
-                      <span>{p.client}</span><span>${Number(p.totalCost).toLocaleString()}</span>{p._date && <span>{p._date}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </main>
+      if (isTotal) return (
+        <div key={i} style={{ fontSize:'17px', fontWeight:800, color: C.amber, fontFamily:'ui-monospace, monospace', marginTop:'4px' }} className="proposal-amber">
+          {trimmed}
         </div>
       );
-    }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
-  </script>
+      if (isLabel) return (
+        <div key={i} style={{ fontSize:'14px', color: C.text, fontFamily:'ui-monospace, monospace', marginBottom:'2px' }} className="proposal-line">
+          {trimmed}
+        </div>
+      );
+
+      /* Bullet lines */
+      if (trimmed.startsWith('•')) return (
+        <div key={i} style={{ fontSize:'14px', color:'#c2c8d4', lineHeight:1.55, paddingLeft:'10px', marginBottom:'3px', display:'flex', gap:'6px' }} className="proposal-line">
+          <span style={{ color: C.amber, flexShrink:0 }}>•</span>
+          <span>{trimmed.slice(1).trim()}</span>
+        </div>
+      );
+
+      /* Default */
+      return (
+        <div key={i} style={{ fontSize:'14px', color:'#b8bdc9', lineHeight:1.55, marginBottom:'2px' }} className="proposal-line">
+          {trimmed}
+        </div>
+      );
+    });
+  };
+
+  return (
+    <div style={{ minHeight:'100vh', background: C.bg, paddingBottom:'80px' }}>
+
+      {/* Sticky header */}
+      <div className="no-print" style={{ background: C.card, borderBottom:`1px solid ${C.border}`, padding:'14px 18px', display:'flex', alignItems:'center', gap:'10px', position:'sticky', top:0, zIndex:20 }}>
+        <button
+          onClick={onBack}
+          style={{ background:'none', border:`1px solid ${C.border}`, color: C.muted, borderRadius:'8px', padding:'8px 14px', cursor:'pointer', fontSize:'13px', fontWeight:600 }}
+        >
+          ← Edit
+        </button>
+        <div style={{ flex:1, fontFamily:'Barlow Condensed, sans-serif', fontWeight:900, fontSize:'22px', color: C.amber, letterSpacing:'0.5px' }}>
+          PROPOSAL READY
+        </div>
+        <button
+          onClick={handleCopy}
+          style={{ background: copied ? C.green : C.amber, border:'none', color:'#0a0b0e', borderRadius:'8px', padding:'9px 18px', cursor:'pointer', fontSize:'13px', fontWeight:800, transition:'all 0.25s', fontFamily:'Barlow Condensed, sans-serif', letterSpacing:'1px' }}
+        >
+          {copied ? '✓ COPIED' : 'COPY'}
+        </button>
+        <button
+          onClick={() => window.print()}
+          title="Print / Save as PDF"
+          style={{ background:'none', border:`1px solid ${C.border}`, color: C.muted, borderRadius:'8px', padding:'9px 13px', cursor:'pointer', fontSize:'16px' }}
+        >
+          🖨
+        </button>
+      </div>
+
+      {/* Proposal content */}
+      <div className="fade-up" style={{ maxWidth:'720px', margin:'0 auto', padding:'24px 18px' }}>
+        <div
+          className="proposal-box"
+          style={{ background: C.card, border:`1px solid ${C.border}`, borderRadius:'18px', padding:'clamp(20px,4vw,32px)' }}
+        >
+          {renderLines()}
+        </div>
+
+        {/* Bottom actions */}
+        <div className="no-print" style={{ marginTop:'20px', display:'flex', gap:'12px' }}>
+          <button
+            onClick={onNew}
+            style={{ flex:1, padding:'17px', background: C.amber, border:'none', borderRadius:'12px', color:'#0a0b0e', fontSize:'17px', fontWeight:900, cursor:'pointer', fontFamily:'Barlow Condensed, sans-serif', letterSpacing:'1px' }}
+          >
+            NEW PROPOSAL →
+          </button>
+          <button
+            onClick={handleCopy}
+            style={{ padding:'17px 20px', background: copied ? C.green : C.card, border:`1px solid ${C.border}`, borderRadius:'12px', color: copied ? '#0a0b0e' : C.muted, fontSize:'14px', fontWeight:700, cursor:'pointer', transition:'all 0.2s', minWidth:'80px' }}
+          >
+            {copied ? '✓' : '📋'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MAIN SCREEN
+   ══════════════════════════════════════════════════════════════════════════ */
+const QUICK_STARTS = [
+  'Full roof replacement, 2,200 sqft colonial, GAF Timberline HDZ, Cranston RI, customer Mike Torres',
+  'Vinyl siding install, 1,800 sqft cape cod, customer Lisa Chen, Johnston RI, budget around $18k',
+  'James Hardie siding + Azek trim, 2-story, North Providence RI',
+  'Emergency storm repair – 4 squares missing, Pawtucket RI, needs fast turnaround',
+  'Gutters + fascia replacement, 185 linear feet, Lincoln RI',
+];
+
+function MainScreen({ apiKey, onChangeKey }) {
+  const [jobDesc,     setJobDesc]     = useState('');
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState('');
+  const [proposal,    setProposal]    = useState('');
+  const [history,     setHistory]     = useState(() => lsGetJ(LS_HISTORY, []));
+  const [showHistory, setShowHistory] = useState(false);
+  const textareaRef = useRef(null);
+
+  const handleGenerate = async () => {
+    const desc = jobDesc.trim();
+    if (!desc || loading) return;
+    setLoading(true); setError(''); setProposal('');
+    try {
+      const p = await callAPI(apiKey, `Generate a professional contractor proposal for this job:\n\n${desc}`);
+      setProposal(p);
+      const item = { id: Date.now(), desc: desc.slice(0, 90), proposal: p, date: new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) };
+      const updated = [item, ...history].slice(0, 30);
+      setHistory(updated);
+      lsSetJ(LS_HISTORY, updated);
+    } catch (e) {
+      setError(e.message || 'Something went wrong. Check your API key.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleGenerate();
+  };
+
+  const handleQuick = (text) => {
+    setJobDesc(text); setError('');
+    textareaRef.current?.focus();
+  };
+
+  const handleNew = () => { setProposal(''); setJobDesc(''); textareaRef.current?.focus(); };
+
+  if (proposal) {
+    return <ProposalView proposal={proposal} onBack={() => setProposal('')} onNew={handleNew} />;
+  }
+
+  return (
+    <div style={{ minHeight:'100vh', background: C.bg }}>
+
+      {/* Top bar */}
+      <div style={{ background: C.card, borderBottom:`1px solid ${C.border}`, padding:'14px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:20 }}>
+        <div style={{ fontFamily:'Barlow Condensed, sans-serif', fontSize:'30px', fontWeight:900, letterSpacing:'-0.5px', lineHeight:1 }}>
+          <span style={{ color: C.amber }}>JOBS</span><span style={{ color: C.text }}>WON</span>
+        </div>
+        <div style={{ display:'flex', gap:'8px' }}>
+          {history.length > 0 && (
+            <button
+              onClick={() => setShowHistory(s => !s)}
+              style={{ background:'none', border:`1px solid ${showHistory ? C.amber : C.border}`, color: showHistory ? C.amber : C.muted, borderRadius:'8px', padding:'8px 12px', cursor:'pointer', fontSize:'13px', fontWeight:600, transition:'all 0.2s' }}
+            >
+              {showHistory ? '✕ Close' : `📋 History (${history.length})`}
+            </button>
+          )}
+          <button
+            onClick={onChangeKey}
+            title="Change API Key"
+            style={{ background:'none', border:`1px solid ${C.border}`, color: C.muted, borderRadius:'8px', padding:'8px 12px', cursor:'pointer', fontSize:'13px', fontWeight:600 }}
+          >
+            ⚙ Key
+          </button>
+        </div>
+      </div>
+
+      <div style={{ maxWidth:'720px', margin:'0 auto', padding:'24px 18px' }}>
+
+        {/* History panel */}
+        {showHistory && (
+          <div className="fade-up" style={{ background: C.card, border:`1px solid ${C.border}`, borderRadius:'16px', padding:'20px', marginBottom:'24px' }}>
+            <div style={{ fontSize:'11px', letterSpacing:'2px', color: C.muted, textTransform:'uppercase', fontWeight:700, marginBottom:'14px' }}>
+              Recent Proposals
+            </div>
+            {history.slice(0, 15).map(h => (
+              <div
+                key={h.id}
+                onClick={() => { setProposal(h.proposal); setJobDesc(h.desc); setShowHistory(false); }}
+                style={{ padding:'12px 14px', background: C.card2, borderRadius:'10px', marginBottom:'8px', cursor:'pointer', border:`1px solid ${C.border}`, transition:'border-color 0.15s' }}
+                onMouseOver={e => e.currentTarget.style.borderColor = C.amber}
+                onMouseOut={e => e.currentTarget.style.borderColor = C.border}
+              >
+                <div style={{ fontSize:'14px', color: C.text, fontWeight:600, marginBottom:'3px' }}>
+                  {h.desc}{h.desc.length >= 90 ? '…' : ''}
+                </div>
+                <div style={{ fontSize:'12px', color: C.muted }}>{h.date}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Hero */}
+        <div className="fade-up" style={{ textAlign:'center', padding:'28px 0 24px' }}>
+          <div style={{ fontSize:'11px', letterSpacing:'4px', color: C.amber, textTransform:'uppercase', fontWeight:700, marginBottom:'14px' }}>
+            Northeast Contracting LLC · Lincoln, RI
+          </div>
+          <div style={{ fontFamily:'Barlow Condensed, sans-serif', fontSize:'clamp(38px,9vw,60px)', fontWeight:900, lineHeight:1.0, color: C.text }}>
+            WIN MORE JOBS<br />
+            <span style={{ color: C.amber }}>IN 60 SECONDS.</span>
+          </div>
+          <div style={{ fontSize:'15px', color: C.muted, marginTop:'14px' }}>
+            Describe the job → get a print-ready proposal.
+          </div>
+        </div>
+
+        {/* Input card */}
+        <div style={{ background: C.card, border:`1px solid ${C.border}`, borderRadius:'16px', padding:'20px', marginBottom:'14px' }}>
+          <label style={{ fontSize:'11px', letterSpacing:'2px', color: C.muted, textTransform:'uppercase', fontWeight:700, display:'block', marginBottom:'10px' }}>
+            Describe the Job
+          </label>
+          <textarea
+            ref={textareaRef}
+            value={jobDesc}
+            onChange={e => { setJobDesc(e.target.value); setError(''); }}
+            onKeyDown={handleKeyDown}
+            placeholder={`e.g., Replace roof on 2,400 sqft colonial in Smithfield RI. GAF Timberline HDZ shingles, customer name John Smith. Also needs ice & water shield on lower 6 ft. Budget around $14k.`}
+            rows={6}
+            style={{
+              width:'100%', background: C.card2, border:`1px solid ${error ? C.red : C.border}`,
+              borderRadius:'12px', color: C.text, fontSize:'15px', lineHeight:1.65,
+              padding:'14px 16px', resize:'vertical', minHeight:'120px',
+              transition:'border-color 0.2s',
+            }}
+          />
+          <div style={{ fontSize:'12px', color: C.muted, marginTop:'8px', lineHeight:1.5 }}>
+            Include: job type · location · size · materials · customer name · special notes<br />
+            <span style={{ opacity:.7 }}>Tip: ⌘ + Enter (Mac) or Ctrl + Enter to generate</span>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={{ background:'rgba(239,68,68,0.08)', border:`1px solid ${C.red}`, borderRadius:'12px', padding:'14px 16px', marginBottom:'14px', fontSize:'14px', color: C.red, lineHeight:1.5 }}>
+            ⚠ {error}
+          </div>
+        )}
+
+        {/* Generate button */}
+        <button
+          onClick={handleGenerate}
+          disabled={loading || !jobDesc.trim()}
+          style={{
+            width:'100%', padding:'19px',
+            background: loading ? C.border : (!jobDesc.trim() ? C.border : C.amber),
+            color: (loading || !jobDesc.trim()) ? C.muted : '#0a0b0e',
+            border:'none', borderRadius:'14px', fontSize:'20px', fontWeight:900,
+            cursor: (loading || !jobDesc.trim()) ? 'not-allowed' : 'pointer',
+            transition:'all 0.2s', letterSpacing:'1.5px',
+            fontFamily:'Barlow Condensed, sans-serif',
+            display:'flex', alignItems:'center', justifyContent:'center', gap:'12px',
+          }}
+        >
+          {loading
+            ? <><span className="spinning" style={{ fontSize:'22px' }}>⟳</span> GENERATING PROPOSAL…</>
+            : 'GENERATE PROPOSAL →'
+          }
+        </button>
+
+        {/* Quick starts */}
+        <div style={{ marginTop:'24px' }}>
+          <div style={{ fontSize:'11px', letterSpacing:'2px', color: C.muted, textTransform:'uppercase', fontWeight:700, marginBottom:'10px' }}>
+            Quick Start
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:'8px' }}>
+            {QUICK_STARTS.map((ex, i) => (
+              <button
+                key={i}
+                onClick={() => handleQuick(ex)}
+                style={{ background: C.card, border:`1px solid ${C.border}`, color: C.muted, borderRadius:'20px', padding:'7px 16px', fontSize:'12px', cursor:'pointer', transition:'all 0.2s', fontFamily:'Barlow, sans-serif' }}
+                onMouseOver={e => { e.currentTarget.style.borderColor = C.amber; e.currentTarget.style.color = C.amber; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.muted; }}
+              >
+                {ex.slice(0, 42)}…
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ textAlign:'center', padding:'40px 20px 28px', fontSize:'11px', color: C.muted, letterSpacing:'2px', textTransform:'uppercase' }}>
+        Northeast Contracting LLC · Lincoln, RI · We Fix the Unfixable
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ROOT APP
+   ══════════════════════════════════════════════════════════════════════════ */
+function App() {
+  const [apiKey,     setApiKey]     = useState(() => lsGet(LS_API_KEY, ''));
+  const [showSetup,  setShowSetup]  = useState(false);
+
+  const hasValidKey = apiKey && apiKey.startsWith('sk-ant-');
+
+  const handleSaveKey = (k) => {
+    setApiKey(k);
+    setShowSetup(false);
+  };
+
+  if (!hasValidKey || showSetup) {
+    return <SetupScreen onSave={handleSaveKey} existingKey={apiKey} />;
+  }
+
+  return <MainScreen apiKey={apiKey} onChangeKey={() => setShowSetup(true)} />;
+}
+
+/* ── Mount ─────────────────────────────────────────────────────────────── */
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
 </body>
 </html>
